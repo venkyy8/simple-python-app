@@ -1,14 +1,17 @@
 name: CI-CD Flask App to ECR
 
 on:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: ${{ secrets.ECR_REPOSITORY }}
   IMAGE_NAME: sample_python_app
+  # aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 084251039480.dkr.ecr.us-east-1.amazonaws.com
+  # docker push 084251039480.dkr.ecr.us-east-1.amazonaws.com/sample_python_app:latest
 
 jobs:
   build-and-push:
@@ -30,6 +33,10 @@ jobs:
       # 3️⃣ Login to Amazon ECR
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
+        
+        # run: |
+        #     aws ecr get-login-password --region us-east-1 |
+        #     docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
       # 4️⃣ Build Docker image
       - name: Build Docker image
