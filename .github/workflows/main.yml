@@ -1,4 +1,4 @@
-name: Testing
+name: CI/CD
 
 on:
   workflow_dispatch:
@@ -10,11 +10,14 @@ env:
   ECS_CLUSTER: Python-Sample-App-Cluster
   ECS_SERVICE: Python-App-TD-service-o9rfe2cb
   ECS_TASK_DEF: Python-App-TD
+  EXECUTION_ROLE_ARN: arn:aws:iam::084251039480:role/ecsTaskExecutionRole
 
 jobs:
-  # 1️⃣ Build and push Docker image to ECR
   build-and-push:
     runs-on: ubuntu-latest
+
+    outputs:
+      IMAGE_TAG: ${{ steps.set-image-tag.outputs.IMAGE_TAG }}
 
     steps:
       - name: Checkout code
@@ -33,24 +36,19 @@ jobs:
         #     aws ecr get-login-password --region us-east-1 |
         #     docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
+      - name: Set image tag
+        id: set-image-tag
+        run: echo "IMAGE_TAG=${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
       - name: Build Docker image
-        run: |
-          docker build -t sample-python:${{ github.run_number }} .
-
-      - name: Tag Docker image
-        run: |
-          docker tag sample-python:${{ github.run_number }} \
-          $ECR_REGISTRY/$IMAGE_NAME:${{ github.run_number }}
+        run: docker build -t $ECR_REGISTRY/$IMAGE_NAME:${GITHUB_RUN_NUMBER} .
 
       - name: Push Docker image to ECR
-        run: |
-          docker push $ECR_REGISTRY/$IMAGE_NAME:${{ github.run_number }}
+        run: docker push $ECR_REGISTRY/$IMAGE_NAME:${GITHUB_RUN_NUMBER}
 
-  # 2️⃣ Deploy to ECS (runs after build-and-push)
   deploy-to-ecs:
     runs-on: ubuntu-latest
-    needs: build-and-push   # ensures this job runs after the first job
+    needs: build-and-push
 
     steps:
       - name: Configure AWS credentials
@@ -62,20 +60,39 @@ jobs:
 
       - name: Deploy to ECS
         run: |
-          # a. Get current task definition JSON
+          IMAGE_TAG=${{ needs.build-and-push.outputs.IMAGE_TAG }}
+          IMAGE_URI=$ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
+
+          echo "Deploying image: $IMAGE_URI"
+
+          # 1️⃣ Get current task definition JSON
           TASK_DEF_JSON=$(aws ecs describe-task-definition \
             --task-definition $ECS_TASK_DEF \
             --region $AWS_REGION \
-            --query 'taskDefinition')
+            --query 'taskDefinition' \
+            --output json)
 
-          # b. Update container image
-          NEW_TASK_DEF=$(echo $TASK_DEF_JSON | jq --arg IMAGE "$ECR_REGISTRY/$IMAGE_NAME:${{ github.run_number }}" \
-            '.containerDefinitions[0].image = $IMAGE | {family: .family, containerDefinitions: .containerDefinitions, executionRoleArn: .executionRoleArn, networkMode: .networkMode, requiresCompatibilities: .requiresCompatibilities, cpu: .cpu, memory: .memory}')
+          # 2️⃣ Update container image and set executionRoleArn
+          NEW_TASK_DEF=$(echo $TASK_DEF_JSON | jq --arg IMAGE "$IMAGE_URI" --arg EXEC_ROLE "$EXECUTION_ROLE_ARN" \
+            '.containerDefinitions[0].image = $IMAGE | .executionRoleArn = $EXEC_ROLE | {family: .family, containerDefinitions: .containerDefinitions, executionRoleArn: .executionRoleArn, networkMode: .networkMode, requiresCompatibilities: .requiresCompatibilities, cpu: .cpu, memory: .memory}')
 
           echo $NEW_TASK_DEF > new-task-def.json
 
-          # c. Register new task definition revision
-          aws ecs register-task-definition --cli-input-json file://new-task-def.json --region $AWS_REGION
+          # 3️⃣ Register new task definition revision and get the ARN
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://new-task-def.json \
+            --region $AWS_REGION \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
 
-          # d. Update ECS service
-          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --force-new-deployment --region $AWS_REGION
+          echo "Registered new task definition: $NEW_TASK_DEF_ARN"
+
+          # 4️⃣ Update ECS service to use the new task definition explicitly
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --task-definition $NEW_TASK_DEF_ARN \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+          echo "ECS service updated successfully!"
