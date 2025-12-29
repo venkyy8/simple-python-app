@@ -1,0 +1,10 @@
+
+1st need to create 1 ECS Cluster 2. Task Defintion (Image,containerName,Port,Container Resources,Role,Type-forgate)
+3.Service(TD,No.of Tasks(containers),Networking(VPC,SubNet,SG(LB,ASG)))  -->Through Task we can access our App(ENI ID-->PublicIP:Port)
+
+
+initially in app.py file 'app.run()' was there replaced that with 'app.run(host="0.0.0.0", port=5000)'
+why because it was running on * http://127.0.0.1:5000, but it has to run on http://<server-ip>:5000 then only we can access from chrome otherwise only internal communication only happen
+ECR_REGISTRY=084251039480.dkr.ecr.us-east-1.amazonaws.com
+
+
