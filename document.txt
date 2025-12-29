@@ -1,3 +1,4 @@
+Created ECS infra by using Terraform and triggered application deployment pipeline.
 
 1st need to create 1 ECS Cluster 2. Task Defintion (Image,containerName,Port,Container Resources,Role,Type-forgate)
 3.Service(TD,No.of Tasks(containers),Networking(VPC,SubNet,SG(LB,ASG)))  -->Through Task we can access our App(ENI ID-->PublicIP:Port)
