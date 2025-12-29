@@ -7,9 +7,9 @@ env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: ${{ secrets.ECR_REPOSITORY }}
   IMAGE_NAME: sample_python_app
-  ECS_CLUSTER: abv                    # your ECS cluster name
-  ECS_SERVICE: td-01-service-6qdjaij6 # your ECS service name
-  ECS_TASK_DEF: td-01                 # your ECS task definition name
+  ECS_CLUSTER: Python-Sample-App-Cluster       # your ECS cluster name
+  ECS_SERVICE: Python-App-TD-service-o9rfe2cb # your ECS service name
+  ECS_TASK_DEF: Python-App-TD         # your ECS task definition name
 
 jobs:
   build-push-deploy:
