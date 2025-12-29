@@ -1,4 +1,4 @@
-name: CI-CD Flask App to ECR
+name: Testing
 
 on:
   # push:
