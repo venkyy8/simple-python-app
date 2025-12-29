@@ -62,7 +62,15 @@ jobs:
 
           # b. Update container image in task definition
           NEW_TASK_DEF=$(echo $TASK_DEF_JSON | jq --arg IMAGE "$ECR_REGISTRY/$IMAGE_NAME:${{ github.run_number }}" \
-            '.containerDefinitions[0].image = $IMAGE | {family: .family, containerDefinitions: .containerDefinitions, taskRoleArn: .taskRoleArn, executionRoleArn: .executionRoleArn, networkMode: .networkMode, requiresCompatibilities: .requiresCompatibilities, cpu: .cpu, memory: .memory}')
+            '.containerDefinitions[0].image = $IMAGE |
+             {family: .family,
+              containerDefinitions: .containerDefinitions,
+              executionRoleArn: .executionRoleArn,
+              networkMode: .networkMode,
+              requiresCompatibilities: .requiresCompatibilities,
+              cpu: .cpu,
+              memory: .memory}')
+
 
           echo $NEW_TASK_DEF > new-task-def.json
 
