@@ -1,55 +1,81 @@
-name: CI-CD Flask App to ECR
+name: Testing
 
 on:
-  # push:
-  #   branches:
-  #     - main
   workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: ${{ secrets.ECR_REPOSITORY }}
   IMAGE_NAME: sample_python_app
-  # aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 084251039480.dkr.ecr.us-east-1.amazonaws.com
-  # docker push 084251039480.dkr.ecr.us-east-1.amazonaws.com/sample_python_app:latest
+  ECS_CLUSTER: Python-Sample-App-Cluster
+  ECS_SERVICE: Python-App-TD-service-o9rfe2cb
+  ECS_TASK_DEF: Python-App-TD
 
 jobs:
+  # 1️⃣ Build and push Docker image to ECR
   build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout source code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      # 3️⃣ Login to Amazon ECR
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
-        
         # run: |
         #     aws ecr get-login-password --region us-east-1 |
         #     docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
-      # 4️⃣ Build Docker image
+
       - name: Build Docker image
         run: |
           docker build -t sample-python:${{ github.run_number }} .
 
-      # 5️⃣ Tag Docker image (run number only)
       - name: Tag Docker image
         run: |
           docker tag sample-python:${{ github.run_number }} \
           $ECR_REGISTRY/$IMAGE_NAME:${{ github.run_number }}
 
-      # 6️⃣ Push Docker image to ECR (run number only)
       - name: Push Docker image to ECR
         run: |
           docker push $ECR_REGISTRY/$IMAGE_NAME:${{ github.run_number }}
+
+  # 2️⃣ Deploy to ECS (runs after build-and-push)
+  deploy-to-ecs:
+    runs-on: ubuntu-latest
+    needs: build-and-push   # ensures this job runs after the first job
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to ECS
+        run: |
+          # a. Get current task definition JSON
+          TASK_DEF_JSON=$(aws ecs describe-task-definition \
+            --task-definition $ECS_TASK_DEF \
+            --region $AWS_REGION \
+            --query 'taskDefinition')
+
+          # b. Update container image
+          NEW_TASK_DEF=$(echo $TASK_DEF_JSON | jq --arg IMAGE "$ECR_REGISTRY/$IMAGE_NAME:${{ github.run_number }}" \
+            '.containerDefinitions[0].image = $IMAGE | {family: .family, containerDefinitions: .containerDefinitions, executionRoleArn: .executionRoleArn, networkMode: .networkMode, requiresCompatibilities: .requiresCompatibilities, cpu: .cpu, memory: .memory}')
+
+          echo $NEW_TASK_DEF > new-task-def.json
+
+          # c. Register new task definition revision
+          aws ecs register-task-definition --cli-input-json file://new-task-def.json --region $AWS_REGION
+
+          # d. Update ECS service
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --force-new-deployment --region $AWS_REGION
